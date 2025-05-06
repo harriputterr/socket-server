@@ -1,13 +1,23 @@
 const express = require("express")
-const http = require("http")
+const https = require("https")
 const { Server } = require("socket.io")
 const cors = require("cors")
-require('dotenv').config();
+const fs = require("fs")
 
+// Create Express app
 const app = express()
 app.use(cors())
 
-const server = http.createServer(app)
+// SSL certificate options - using your Let's Encrypt certificates
+const options = {
+  key: fs.readFileSync('/etc/letsencrypt/live/harsingh.ca/privkey.pem'),
+  cert: fs.readFileSync('/etc/letsencrypt/live/harsingh.ca/fullchain.pem')
+};
+
+// Create HTTPS server
+const server = https.createServer(options, app)
+
+// Set up Socket.IO
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -24,22 +34,15 @@ io.on("connection", (socket) => {
   // Handle room join
   socket.on("room:join", (data) => {
     const { roomId, username } = data
-
-    // Join the socket to the room
     socket.join(roomId)
-
-    // Store user in room map
+    
     if (!roomUsers.has(roomId)) {
       roomUsers.set(roomId, [])
     }
     roomUsers.get(roomId).push({ id: socket.id, username })
-
-    // Notify the user they've joined
+    
     socket.emit("room:join", { roomId, username })
-
-    // Notify other users in the room
     socket.to(roomId).emit("user:joined", { id: socket.id, username })
-
     console.log(`${username} joined room ${roomId}`)
   })
 
@@ -76,24 +79,26 @@ io.on("connection", (socket) => {
   // Handle disconnection
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.id}`)
-
-    // Remove user from all rooms
+    
     roomUsers.forEach((users, roomId) => {
       const userIndex = users.findIndex((user) => user.id === socket.id)
       if (userIndex !== -1) {
         const user = users[userIndex]
         users.splice(userIndex, 1)
-
-        // Notify others in the room
         socket.to(roomId).emit("user:left", { id: socket.id, username: user.username })
-
         console.log(`${user.username} left room ${roomId}`)
       }
     })
   })
 })
 
-const PORT = process.env.PORT || 8000
+// Add a simple test route
+app.get('/', (req, res) => {
+  res.send('HTTPS Socket.IO server is running!');
+});
+
+// Start the server
+const PORT = 443
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
+  console.log(`HTTPS Server running on port ${PORT}`)
 })
